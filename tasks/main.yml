@@ -1,5 +1,5 @@
 ---
-- name: install packages
+- name: Install packages to Debian
   apt:
     name: "{{ item }}"
     state: present
@@ -8,12 +8,26 @@
     - git
     - apt-transport-https
     - nginx
+  when: ansible_os_family == 'Debian'
 
-- name: check out master branch
+- name: Install packages to RedHat
+  yum:
+    name: "{{ item }}"
+    state: present
+    update_cache: yes
+  loop:
+    - epel-release
+    - git
+    - nginx
+    - yum-utils
+    - http://rpms.remirepo.net/enterprise/remi-release-7.rpm
+  when: ansible_os_family == 'RedHat'
+
+- name: Check out master branch
   git:
     repo: 'https://github.com/monicahq/monica'
     dest: /srv/monicahq
-    version: master
+    version: main
 
 - name: Add the user
   user:
@@ -21,19 +35,21 @@
     shell: /usr/bin/nologin
     home: /srv/monicahq
 
-- name: Install sury key
+- name: Install sury key to Debian
   apt_key:
     url: 'https://packages.sury.org/php/apt.gpg'
     state: present
+  when: ansible_os_family == 'Debian'
 
-- name: Add sury repositories
+- name: Add sury repositories to Debian
   apt_repository:
     repo: "deb https://packages.sury.org/php/ stretch main"
     state: present
     update_cache: yes
     filename: 'sury'
+  when: ansible_os_family == 'Debian'
 
-- name: install php dependencies
+- name: install php dependencies to Debian
   apt:
     name: "{{ item }}"
     state: present
@@ -59,22 +75,64 @@
     - php-memcached
     - php-xdebug
     - php-redis
+  when: ansible_os_family == 'Debian'
 
-- name: reload service php-fcgi
+- name: Enable PHP 8.1 repo to Redhat
+  shell: "yum-config-manager --enable remi-php81"
+  when: ansible_os_family == 'RedHat'
+
+- name: install php dependencies to RedHat
+  yum:
+    name: "{{ item }}"
+    state: present
+    update_cache: yes
+  loop:
+    - php
+    - php-cli
+    - php-intl
+    - php-iconv
+    - php-fpm
+    - php-curl
+    - php-gd
+    - php-mysql
+    - php-mysqli
+    - php-opcache
+    - php-json
+    - php-mbstring
+    - php-soap
+    - php-xml
+    - php-zip
+    - php-gmp
+    - php-bcmath
+    - php-memcache
+    - php-pecl-xdebug
+    - php-pecl-redis
+  when: ansible_os_family == 'RedHat'
+
+- name: Reload service php-fcgi
   become: true
   systemd:
-    name: php7.3-fpm
+    name: php73-php-fpm
     state: reloaded
+  when: ansible_os_family == 'Debian'
 
-- name: install composer
+- name: Reload service php-fcgi
+  become: true
+  systemd:
+    name: php-fpm
+    state: reloaded
+  when: ansible_os_family == 'RedHat'
+
+- name: Install composer
   include_role:
     name: geerlingguy.composer
 
-- name: install composer dependencies
+- name: Install composer dependencies
   composer:
     command: install
     working_dir: /srv/monicahq
-- name: prepare configuration
+
+- name: Prepare configuration
   template:
     src: env.j2
     dest: /srv/monicahq/.env
@@ -111,15 +169,18 @@
     state: directory
     recurse: yes
     mode: g+w
+
 - name: Create nginx vhost config
   template:
     src: monicahq.conf.j2
     dest: /etc/nginx/sites-enabled/monica.conf
+
 - name: Remove default nginx configuration
   file:
     path: /etc/nginx/sites-enabled/default
     state: absent
-- name: reload service nginx
+
+- name: Reload service nginx
   become: true
   systemd:
     name: nginx
